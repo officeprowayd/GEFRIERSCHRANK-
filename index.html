@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b5ea8">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Gefrierschrank-Bestand</title>
+<style>
+:root{--bg:#f2f6fa;--card:#fff;--pri:#0b5ea8;--txt:#14202b;--mut:#6b7c8c;--warn:#c25a00;--bad:#b3261e;--ok:#1b7f3b;--line:#dbe4ec}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt);padding-bottom:76px}
+header{background:var(--pri);color:#fff;padding:14px 16px;font-size:18px;font-weight:600;position:sticky;top:0;z-index:5}
+main{padding:12px;max-width:640px;margin:auto}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid var(--line);z-index:5}
+nav button{flex:1;border:0;background:none;padding:10px 4px;font-size:12px;color:var(--mut)}
+nav button b{display:block;font-size:20px}
+nav button.on{color:var(--pri);font-weight:700}
+.card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px;box-shadow:0 1px 3px #0001}
+h2{margin:0 0 8px;font-size:16px}
+h3{margin:10px 0 4px;font-size:14px;color:var(--mut)}
+input,select{width:100%;padding:12px;font-size:16px;border:1px solid var(--line);border-radius:8px;background:#fff;margin:4px 0 8px}
+label{font-size:13px;color:var(--mut)}
+.btn{display:block;width:100%;padding:14px;font-size:16px;border:0;border-radius:10px;background:var(--pri);color:#fff;font-weight:600;margin:6px 0}
+.btn.sec{background:#e3edf6;color:var(--pri)}
+.btn.red{background:var(--bad)}
+.btn.sm{display:inline-block;width:auto;padding:8px 12px;font-size:14px;margin:0}
+.item{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.item:first-of-type{border-top:0}
+.item .t{flex:1;min-width:0}
+.item .n{font-weight:600;overflow-wrap:anywhere}
+.item .s{font-size:12px;color:var(--mut)}
+.old .s{color:var(--warn);font-weight:600}
+.vold .s{color:var(--bad);font-weight:600}
+.drawer{background:#eef4f9;border-radius:8px;padding:6px 10px;margin:6px 0}
+.drawer summary{font-weight:600;padding:4px 0}
+.msg{padding:10px;border-radius:8px;margin:8px 0;font-size:14px}
+.msg.ok{background:#e3f4e8;color:var(--ok)}.msg.err{background:#fde7e5;color:var(--bad)}
+.modal{position:fixed;inset:0;background:#000c;z-index:20;display:flex;align-items:center;justify-content:center;padding:12px}
+.modal>div{background:#fff;border-radius:14px;padding:14px;width:100%;max-width:420px;max-height:92vh;overflow:auto}
+video{width:100%;display:block;border-radius:8px;background:#000;max-height:40vh}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.vw{position:relative}.vw .line{position:absolute;left:6%;right:6%;top:50%;height:2px;margin-top:-1px;background:#ff1744;box-shadow:0 0 8px #ff1744;pointer-events:none}.vw .fr{position:absolute;left:6%;right:6%;top:30%;bottom:30%;border:2px solid #fff8;border-radius:8px;pointer-events:none}
+.empty{color:var(--mut);text-align:center;padding:16px}
+textarea{width:100%;height:90px;font-size:12px}
+</style>
+</head>
+<body>
+<header id="hd">Gefrierschrank</header>
+<main id="app"></main>
+<nav id="nav"></nav>
+<div id="modal"></div>
+<script>
+(function(){
+var KEY='gefrier_v1';
+var S={freezers:[{id:'f1',name:'Gefrierschrank',drawers:4}],items:[],warnMonths:6};
+var mem=null;
+function load(){try{var r=localStorage.getItem(KEY);if(r){S=JSON.parse(r);return}}catch(e){}
+  if(mem)S=JSON.parse(mem)}
+function save(){var j=JSON.stringify(S);mem=j;try{localStorage.setItem(KEY,j)}catch(e){}}
+load();
+var tab='bestand',q='',msg=null;
+var $=function(id){return document.getElementById(id)};
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function today(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function fmt(d){var p=d.split('-');return p[2]+'.'+p[1]+'.'+p[0]}
+function months(d){var a=new Date(d),b=new Date();return (b-a)/(1000*60*60*24*30.44)}
+function fname(id){var f=S.freezers.find(function(x){return x.id===id});return f?f.name:'?'}
+function normCode(n){return 'M:'+n.trim().toLowerCase()}
+
+/* ---------- Scanner ---------- */
+function scanner(cb){
+  var stream=null,stop=false,det=null;
+  try{det=('BarcodeDetector' in window)?new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code']}):null}catch(e){det=null}
+  function close(){stop=true;if(stream)stream.getTracks().forEach(function(t){t.stop()});$('modal').innerHTML=''}
+  var ac=null;try{ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+  function beep(){try{if(ac){var o=ac.createOscillator(),g=ac.createGain();o.type='square';o.frequency.value=1800;g.gain.value=0.15;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+0.15)}}catch(e){}try{navigator.vibrate&&navigator.vibrate(80)}catch(e){}}
+  function done(code){beep();close();cb(code)}
+  var cv=document.createElement('canvas');
+  $('modal').innerHTML='<div class="modal"><div><h2>Barcode scannen</h2><div class="vw" id="vw" style="display:none"><video id="vid" playsinline muted></video><div class="fr"></div><div class="line"></div></div><div id="sinfo" class="s"></div>'+
+   '<label class="btn sec" style="display:block;text-align:center">Foto vom Barcode aufnehmen<input id="photo" type="file" accept="image/*" capture="environment" style="display:none"></label>'+
+   '<label>Oder Code eintippen</label><input id="man" inputmode="numeric" placeholder="z. B. 4001234567890">'+
+   '<button class="btn" id="mok">Code übernehmen</button><button class="btn sec" id="mcancel">Abbrechen</button></div></div>';
+  $('mcancel').onclick=close;
+  $('mok').onclick=function(){var v=$('man').value.trim();if(v)done(v)};
+  $('photo').onchange=function(e){var f=e.target.files[0];if(!f)return;
+    if(!det){$('sinfo').textContent='Dieser Browser kann Barcodes nicht automatisch lesen. Bitte Code eintippen.';return}
+    createImageBitmap(f).then(function(b){return det.detect(b)}).then(function(r){
+      if(r&&r.length)done(r[0].rawValue);else $('sinfo').textContent='Kein Barcode erkannt. Näher ran, besser beleuchten, nochmal versuchen.';
+    }).catch(function(){$('sinfo').textContent='Foto konnte nicht gelesen werden.'})};
+  if(det&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
+    navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}}).then(function(s){
+      if(stop){s.getTracks().forEach(function(t){t.stop()});return}
+      stream=s;var v=$('vid');$('vw').style.display='block';v.srcObject=s;v.play();
+      $('sinfo').textContent='Barcode quer auf die rote Linie legen – Piepton bei Erkennung.';
+      (function loop(){if(stop)return;
+        var w=v.videoWidth,h=v.videoHeight;if(!w){setTimeout(loop,100);return}
+        var sh=Math.round(h*0.4);cv.width=w;cv.height=sh;cv.getContext('2d').drawImage(v,0,Math.round(h*0.3),w,sh,0,0,w,sh);
+        det.detect(cv).then(function(r){if(r&&r.length)done(r[0].rawValue);else setTimeout(loop,200)}).catch(function(){setTimeout(loop,300)})})();
+    }).catch(function(){$('sinfo').textContent='Live-Kamera nicht verfügbar – nutze „Foto aufnehmen“ oder tippe den Code ein.'});
+  }else{$('sinfo').textContent=det?'Live-Kamera nicht verfügbar – nutze „Foto aufnehmen“ oder tippe den Code ein.':'Automatisches Lesen wird hier nicht unterstützt – Code eintippen.'}
+}
+
+/* ---------- Produktname ---------- */
+function lookup(code){
+  var known=S.items.filter(function(i){return i.code===code}).pop();
+  if(known)return Promise.resolve(known.name);
+  if(code.indexOf('M:')===0)return Promise.resolve(code.slice(2));
+  return fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields=product_name,brands')
+    .then(function(r){return r.json()}).then(function(j){
+      if(j&&j.product&&j.product.product_name){return (j.product.brands?j.product.brands.split(',')[0]+' ':'')+j.product.product_name}
+      return ''}).catch(function(){return ''});
+}
+
+/* ---------- Rendering ---------- */
+function render(){
+  var titles={bestand:'Bestand',ein:'Einlagern',aus:'Entnehmen',set:'Einstellungen'};
+  $('hd').textContent='Gefrierschrank · '+titles[tab]+(tab==='bestand'?' ('+S.items.length+')':'');
+  var n=[['bestand','🧊','Bestand'],['ein','⬇️','Rein'],['aus','⬆️','Raus'],['set','⚙️','Einstell.']];
+  $('nav').innerHTML=n.map(function(x){return '<button data-t="'+x[0]+'" class="'+(tab===x[0]?'on':'')+'"><b>'+x[1]+'</b>'+x[2]+'</button>'}).join('');
+  Array.prototype.forEach.call($('nav').children,function(b){b.onclick=function(){tab=b.dataset.t;msg=null;render()}});
+  var h='';
+  if(msg)h+='<div class="msg '+msg.k+'">'+esc(msg.t)+'</div>';
+  if(tab==='bestand')h+=vBestand();
+  if(tab==='ein')h+=vEin();
+  if(tab==='aus')h+=vAus();
+  if(tab==='set')h+=vSet();
+  $('app').innerHTML=h;
+  bind();
+}
+function itemRow(i,showLoc){
+  var m=months(i.date),cls=m>=S.warnMonths*1.5?'vold':(m>=S.warnMonths?'old':'');
+  return '<div class="item '+cls+'"><div class="t"><div class="n">'+esc(i.name)+'</div><div class="s">eingelagert '+fmt(i.date)+(showLoc?' · '+esc(fname(i.freezer))+', Lade '+i.drawer:'')+(cls?' · lange gelagert':'')+'</div></div><button class="btn sm sec" data-out="'+i.id+'">Raus</button></div>'}
+function vBestand(){
+  var h='<input id="q" type="search" placeholder="Suchen …" value="'+esc(q)+'">';
+  if(!S.items.length)return h+'<div class="empty">Noch nichts eingelagert.</div>';
+  var ql=q.toLowerCase();
+  if(ql){var r=S.items.filter(function(i){return i.name.toLowerCase().indexOf(ql)>-1||i.code.indexOf(ql)>-1});
+    h+='<div class="card">'+(r.length?r.sort(function(a,b){return a.date<b.date?-1:1}).map(function(i){return itemRow(i,true)}).join(''):'<div class="empty">Nichts gefunden.</div>')+'</div>';return h}
+  S.freezers.forEach(function(f){
+    var all=S.items.filter(function(i){return i.freezer===f.id});
+    h+='<div class="card"><h2>'+esc(f.name)+' <span class="s" style="font-weight:400;color:var(--mut)">('+all.length+')</span></h2>';
+    for(var d=1;d<=f.drawers;d++){
+      var it=all.filter(function(i){return i.drawer===d}).sort(function(a,b){return a.date<b.date?-1:1});
+      h+='<details class="drawer"'+(it.length?' open':'')+'><summary>Lade '+d+' ('+it.length+')</summary>'+(it.length?it.map(function(i){return itemRow(i,false)}).join(''):'<div class="s" style="color:var(--mut);padding:4px 0">leer</div>')+'</details>';
+    }
+    h+='</div>';
+  });
+  return h;
+}
+function freezerSel(selF,selD){
+  var f=S.freezers.find(function(x){return x.id===selF})||S.freezers[0];
+  var h='<label>Gefrierschrank</label><select id="fz">'+S.freezers.map(function(x){return '<option value="'+x.id+'"'+(x.id===f.id?' selected':'')+'>'+esc(x.name)+'</option>'}).join('')+'</select>';
+  h+='<label>Lade</label><select id="dr">';for(var d=1;d<=f.drawers;d++)h+='<option value="'+d+'"'+(d==selD?' selected':'')+'>Lade '+d+'</option>';
+  return h+'</select>';
+}
+var draft={code:'',name:'',fz:null,dr:1,date:today()};
+function vEin(){
+  var h='<button class="btn" id="scanIn">📷 Barcode scannen</button><button class="btn sec" id="noCode">Ohne Barcode (selbst Eingefrorenes)</button>';
+  if(draft.code){
+    h+='<div class="card"><h2>Neuer Eintrag</h2><label>Name</label><input id="nm" value="'+esc(draft.name)+'" placeholder="Produktname">'+
+      '<div class="s" style="color:var(--mut);margin-bottom:6px">Code: '+esc(draft.code)+'</div>'+freezerSel(draft.fz,draft.dr)+
+      '<label>Einlagerdatum</label><input id="dt" type="date" value="'+draft.date+'">'+
+      '<button class="btn" id="saveIn">Einlagern</button><button class="btn sec" id="cancelIn">Abbrechen</button></div>';
+  }
+  return h;
+}
+function vAus(){
+  return '<button class="btn" id="scanOut">📷 Barcode scannen zum Entnehmen</button><div class="card"><h2>Hinweis</h2><div class="s" style="color:var(--mut)">Pro Scan wird die älteste Packung dieses Artikels entfernt. Ohne Barcode: unter „Bestand“ bei der Packung auf „Raus“ tippen.</div></div>';
+}
+function vSet(){
+  var h='<div class="card"><h2>Gefrierschränke</h2>';
+  S.freezers.forEach(function(f){h+='<div class="item"><div class="t"><input data-fn="'+f.id+'" value="'+esc(f.name)+'"></div><div style="width:90px"><input data-fd="'+f.id+'" type="number" min="1" max="20" value="'+f.drawers+'"></div><button class="btn sm red" data-fdel="'+f.id+'">✕</button></div>'});
+  h+='<div class="s" style="color:var(--mut)">Name · Anzahl Laden</div><button class="btn sec" id="addF">+ Gefrierschrank hinzufügen</button></div>';
+  h+='<div class="card"><h2>Warnung bei langer Lagerzeit</h2><label>Ab wie vielen Monaten markieren?</label><input id="wm" type="number" min="1" max="60" value="'+S.warnMonths+'"></div>';
+  h+='<div class="card"><h2>Datensicherung</h2><div class="s" style="color:var(--mut)">Daten liegen nur auf diesem Handy. Text kopieren und sicher aufbewahren; zum Wiederherstellen einfügen.</div><textarea id="bk">'+esc(JSON.stringify(S))+'</textarea><button class="btn sec" id="restore">Aus Text wiederherstellen</button></div>';
+  return h;
+}
+function bind(){
+  var e;
+  if(e=$('q'))e.oninput=function(){q=e.value;var p=e.selectionStart;render();var n=$('q');n.focus();n.setSelectionRange(p,p)};
+  Array.prototype.forEach.call(document.querySelectorAll('[data-out]'),function(b){b.onclick=function(){
+    var it=S.items.find(function(i){return i.id===b.dataset.out});
+    if(it&&confirm0(it.name)){S.items=S.items.filter(function(i){return i!==it});save();msg={k:'ok',t:'Entnommen: '+it.name};render()}}});
+  if(e=$('scanIn'))e.onclick=function(){scanner(function(code){
+    draft={code:code,name:'',fz:S.freezers[0].id,dr:1,date:today()};msg={k:'ok',t:'Suche Produktname …'};render();
+    lookup(code).then(function(n){draft.name=n;msg=n?null:{k:'err',t:'Kein Name gefunden – bitte selbst eintragen.'};render()})})};
+  if(e=$('noCode'))e.onclick=function(){draft={code:'M:',name:'',fz:S.freezers[0].id,dr:1,date:today()};render()};
+  if(e=$('fz'))e.onchange=function(){keep();draft.fz=e.value;draft.dr=1;render()};
+  if(e=$('saveIn'))e.onclick=function(){keep();
+    if(!draft.name.trim()){msg={k:'err',t:'Bitte einen Namen eintragen.'};render();return}
+    var code=draft.code==='M:'?normCode(draft.name):draft.code;
+    S.items.push({id:uid(),code:code,name:draft.name.trim(),freezer:draft.fz,drawer:parseInt(draft.dr,10),date:draft.date||today()});save();
+    msg={k:'ok',t:'Eingelagert: '+draft.name.trim()+' → '+fname(draft.fz)+', Lade '+draft.dr};draft={code:'',name:'',fz:null,dr:1,date:today()};render()};
+  if(e=$('cancelIn'))e.onclick=function(){draft={code:'',name:'',fz:null,dr:1,date:today()};render()};
+  if(e=$('scanOut'))e.onclick=function(){scanner(function(code){
+    var m=S.items.filter(function(i){return i.code===code}).sort(function(a,b){return a.date<b.date?-1:1});
+    if(!m.length){msg={k:'err',t:'Dieser Barcode ist nicht im Bestand ('+code+').'};render();return}
+    var it=m[0];S.items=S.items.filter(function(i){return i!==it});save();
+    msg={k:'ok',t:'Entnommen: '+it.name+' (aus '+fname(it.freezer)+', Lade '+it.drawer+'). Noch '+(m.length-1)+' davon im Bestand.'};render()})};
+  Array.prototype.forEach.call(document.querySelectorAll('[data-fn]'),function(i){i.onchange=function(){var f=S.freezers.find(function(x){return x.id===i.dataset.fn});f.name=i.value||f.name;save()}});
+  Array.prototype.forEach.call(document.querySelectorAll('[data-fd]'),function(i){i.onchange=function(){var f=S.freezers.find(function(x){return x.id===i.dataset.fd});
+    var n=Math.max(1,Math.min(20,parseInt(i.value,10)||1));S.items.forEach(function(it){if(it.freezer===f.id&&it.drawer>n)it.drawer=n});f.drawers=n;save();render()}});
+  Array.prototype.forEach.call(document.querySelectorAll('[data-fdel]'),function(b){b.onclick=function(){
+    if(S.freezers.length<2){msg={k:'err',t:'Mindestens ein Gefrierschrank nötig.'};render();return}
+    var id=b.dataset.fdel;if(S.items.some(function(i){return i.freezer===id})){msg={k:'err',t:'Erst die Artikel entnehmen, dann löschen.'};render();return}
+    S.freezers=S.freezers.filter(function(f){return f.id!==id});save();render()}});
+  if(e=$('addF'))e.onclick=function(){S.freezers.push({id:uid(),name:'Gefrierschrank '+(S.freezers.length+1),drawers:3});save();render()};
+  if(e=$('wm'))e.onchange=function(){S.warnMonths=Math.max(1,parseInt(e.value,10)||6);save()};
+  if(e=$('restore'))e.onclick=function(){try{var j=JSON.parse($('bk').value);if(!j.freezers||!j.items)throw 0;S=j;save();msg={k:'ok',t:'Wiederhergestellt.'}}catch(x){msg={k:'err',t:'Text ungültig.'}}render()};
+}
+function keep(){var a=$('nm');if(a)draft.name=a.value;a=$('fz');if(a)draft.fz=a.value;a=$('dr');if(a)draft.dr=a.value;a=$('dt');if(a)draft.date=a.value}
+function confirm0(n){return true}
+render();
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){})}
+})();
+</script>
+</body>
+</html>
